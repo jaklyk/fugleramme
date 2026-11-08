@@ -31,6 +31,7 @@ from .settings import Settings, SettingsStore, from_env
 from .source import Unavailable
 from .status import Frame, MatTest, Status, under_test
 from .web.server import serve
+from .xenocanto import References
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +181,8 @@ def run(config: Config) -> None:
         panel,
         status,
         setup,
+        source,
+        References(store.path.parent / "xeno-canto"),
     )
 
     def _shutdown(signum: int, frame: object) -> None:

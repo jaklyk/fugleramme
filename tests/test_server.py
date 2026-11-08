@@ -515,6 +515,12 @@ def test_every_route_is_either_the_kiosk_or_behind_the_password(tmp_path, source
         "/paper.png",
         "/title.ttf",
         "/health",
+        # Tap-to-listen: the kiosk's own, read without a session, and 404 while it is off.
+        "/listen.js",
+        "/page.json",
+        "/listen/plate",
+        "/listen/clip",
+        "/listen/reference",
     }
 
 

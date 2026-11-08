@@ -123,6 +123,10 @@
     setTimeout(tick, DELAY);
   }
   tick();
+  // Tap-to-listen, only on a frame that has it on: anything else answers 404 here.
+  fetch("/page.json", {method: "HEAD", cache: "no-store"})
+    .then((answer) => answer.ok && import("/listen.js").then((m) => m.start(collage)))
+    .catch(() => {});
 </script>
 </body>
 </html>

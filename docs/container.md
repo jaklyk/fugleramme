@@ -75,6 +75,7 @@ Every setting on the admin page can be seeded with `FUGLERAMME_<NAME>`:
       FUGLERAMME_SPECIES_LIMIT: 40                   # 0 for no limit
       FUGLERAMME_RANKING: heard                      # heard | rarest | rarest_ever
       FUGLERAMME_SPOTLIGHT: "false"                  # spotlight the latest heard bird
+      FUGLERAMME_TAP_TO_LISTEN: "false"              # tap a bird in the browser to hear it
       FUGLERAMME_STYLE: classic
       FUGLERAMME_SHOW_NAMES: "true"
       FUGLERAMME_NAME_KEY: "false"                   # numbered key instead of names beside the birds
@@ -98,9 +99,11 @@ hand-edited settings file).
 Use the seed values to bring a fresh frame up the way you want it, and the admin page for
 everything afterwards. To start over, delete the volume (no detections will be lost - only your settings).
 
-Two more variables are not settings, so they apply on every start:
-`FUGLERAMME_DETECTOR_TIMEOUT` (seconds to wait for BirdNET-Go, default 30) and
-`FUGLERAMME_LOG_LEVEL` (`DEBUG` logs every request to it).
+A few more variables are not settings, so they apply on every start:
+`FUGLERAMME_DETECTOR_TIMEOUT` (seconds to wait for BirdNET-Go, default 30),
+`FUGLERAMME_LOG_LEVEL` (`DEBUG` logs every request to it), and the two
+[Tap a bird to listen](screens.md#tap-a-bird-to-listen) reads for its reference
+recordings: `FUGLERAMME_XENO_CANTO_KEY` and `FUGLERAMME_XENO_CANTO_COUNTRIES`.
 
 ## The volume
 

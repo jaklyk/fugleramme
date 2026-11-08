@@ -138,6 +138,9 @@ class Settings:
     layout: str = DEFAULT_LAYOUT
     # The collage with the latest bird drawn large in the middle (#185).
     spotlight: bool = False
+    # A tap on a bird in the kiosk opens a card to hear it: its own clip from the
+    # detector, and a reference recording from xeno-canto. Off keeps the kiosk a picture.
+    tap_to_listen: bool = False
     auto_update: bool = False
     show_names: bool = True
     # Numbers on the birds and the names in a key beside them, poster style.
@@ -384,6 +387,7 @@ def _coerce(raw: dict, base: Settings | None = None) -> Settings:
         style=_style(raw, d.style),
         layout=_one_of(str(raw.get("layout", d.layout)), LAYOUTS, d.layout),
         spotlight=_as_bool(raw.get("spotlight"), d.spotlight),
+        tap_to_listen=_as_bool(raw.get("tap_to_listen"), d.tap_to_listen),
         auto_update=_as_bool(raw.get("auto_update"), d.auto_update),
         show_names=_as_bool(raw.get("show_names"), d.show_names),
         name_key=_as_bool(raw.get("name_key"), d.name_key),

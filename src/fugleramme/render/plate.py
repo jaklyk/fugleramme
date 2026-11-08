@@ -16,6 +16,8 @@ from PIL import Image
 from . import fonts
 from .page import (
     NO_MARGIN,
+    Bird,
+    Drawn,
     Edges,
     blank,
     day_ordinal,
@@ -56,11 +58,43 @@ def render_plate(
     margin: Edges = NO_MARGIN,
 ) -> Image.Image:
     """The page for one bird, or the empty perch when there is none to draw."""
+    return compose_plate(
+        art_path,
+        "",
+        name,
+        note,
+        resolution,
+        show_names,
+        textured,
+        font_key,
+        label_size,
+        perches,
+        day,
+        margin,
+    ).image
+
+
+def compose_plate(
+    art_path: Path | None,
+    scientific: str = "",
+    name: str = "",
+    note: str = "",
+    resolution: tuple[int, int] = DEFAULT_RESOLUTION,
+    show_names: bool = True,
+    textured: bool = True,
+    font_key: str = fonts.DEFAULT_FONT,
+    label_size: str = fonts.DEFAULT_LABEL_SIZE,
+    perches: Sequence[Path] = (),
+    day: int | None = None,
+    margin: Edges = NO_MARGIN,
+) -> Drawn:
+    """`render_plate`, with where the bird landed. `scientific` names it, since
+    `name` is only what the caption reads."""
     width, height = resolution
     canvas = blank(resolution, textured)
     if art_path is None:
         draw_perch(canvas, perches, day_ordinal() if day is None else day, textured)
-        return canvas
+        return Drawn(canvas)
 
     x0, y0, x1, y1 = effective_margin(margin).window(resolution)
     name_px = round(label_px(width, height, label_size) * _NAME_SCALE)
@@ -75,13 +109,15 @@ def render_plate(
     origin = (x0 + (x1 - x0 - art.width) // 2 - PAD, y - PAD)
     proc = process_sprite(art, origin, textured=textured)
     canvas.paste(proc, origin, proc)
+    at = (origin[0] + PAD, origin[1] + PAD)
+    bird = Bird(scientific, (*at, at[0] + art.width, at[1] + art.height))
 
     y += art.height
     for mask, gap in lines:
         y += gap
         stamp(canvas, mask, (x0 + (x1 - x0 - mask.width) // 2, y), textured)
         y += mask.height
-    return canvas
+    return Drawn(canvas, (bird,) if scientific else ())
 
 
 def _caption(

@@ -57,6 +57,21 @@ class Edges(NamedTuple):
 NO_MARGIN = Edges(0, 0, 0, 0)
 
 
+class Bird(NamedTuple):
+    """Where one bird's plate was drawn, as (x0, y0, x1, y1) in the page's pixels."""
+
+    name: str
+    box: tuple[int, int, int, int]
+
+
+class Drawn(NamedTuple):
+    """A page and the birds on it. The boxes come from the render that drew the
+    pixels, so anything that finds a bird on the picture cannot disagree with it."""
+
+    image: Image.Image
+    birds: tuple[Bird, ...] = ()
+
+
 def banded(page: Image.Image, margin: Edges, ink: int | tuple[int, int, int]) -> Image.Image:
     """`page` with everything outside `margin` in `ink`: the line a mat's window has to land
     on. A palette page takes an index, so no dither speckles the band."""

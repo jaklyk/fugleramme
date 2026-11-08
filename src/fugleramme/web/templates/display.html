@@ -60,4 +60,9 @@
   <h2>Artwork</h2>
   {{ radios("style", styles, style) }}
 </div>
+
+<div class="card">
+  <h2>Kiosk</h2>
+  {% call checkbox("tap_to_listen", settings.tap_to_listen, declared=true) %}Tap a bird to listen {{ hint("A tap on a bird in the browser opens a card with its last clip from BirdNET-Go and a reference recording from xeno-canto.") }}{% endcall %}
+</div>
 </div>

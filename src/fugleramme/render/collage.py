@@ -43,6 +43,8 @@ from .page import (
     MIN_LABEL_PX,
     NEW,
     NO_MARGIN,
+    Bird,
+    Drawn,
     Edges,
     blank,
     day_ordinal,
@@ -444,23 +446,54 @@ def render_collage(
     name_key: with names on, number the birds and list the names in a key.
     spotlight: the entry drawn large in the middle, the rest packed round it.
     """
+    return compose_collage(
+        entries,
+        resolution,
+        show_names,
+        textured,
+        font_key,
+        label_size,
+        label_text,
+        perches,
+        layout,
+        margin,
+        name_key,
+        spotlight,
+    ).image
+
+
+def compose_collage(
+    entries: list[tuple[str, Path | None]],
+    resolution: tuple[int, int] = DEFAULT_RESOLUTION,
+    show_names: bool = True,
+    textured: bool = True,
+    font_key: str = fonts.DEFAULT_FONT,
+    label_size: str = fonts.DEFAULT_LABEL_SIZE,
+    label_text: Callable[[str], str] = str,
+    perches: Sequence[Path] = (),
+    layout: str = packing.DEFAULT_LAYOUT,
+    margin: Edges = _DEFAULT_EDGES,
+    name_key: bool = False,
+    spotlight: str | None = None,
+) -> Drawn:
+    """`render_collage`, with where each bird landed on the page."""
     canvas = blank(resolution, textured)
 
     kept = [(name, path) for name, path in entries if path is not None]
     if not kept:
         draw_perch(canvas, perches, day_ordinal(), textured)
-        return canvas
+        return Drawn(canvas)
     if show_names and name_key:
-        _draw_keyed(
+        birds = _draw_keyed(
             canvas, kept, textured, font_key, label_size, label_text, layout, margin, spotlight
         )
-        return canvas
+        return Drawn(canvas, birds)
 
     # Pack pixels from here down; `scale` takes them to the output.
     scale = min(resolution) / _PACK_SHORT
     pack = (round(resolution[0] / scale), round(resolution[1] / scale))
     names = [name for name, _ in kept]
-    placed, used_px = _draw_birds(
+    placed, used_px, birds = _draw_birds(
         canvas,
         kept,
         (0, 0),
@@ -481,7 +514,7 @@ def render_collage(
         texts = {p.index: label_text(names[p.index]) for p in placed}
         held = names.index(spotlight) if spotlight in names else None
         _stamp_labels(canvas, placed, texts, font, scale, (0, 0), textured, held=held)
-    return canvas
+    return Drawn(canvas, birds)
 
 
 def _draw_birds(
@@ -498,10 +531,10 @@ def _draw_birds(
     margin: Edges,
     mask_of: _Mask = text_mask,
     spotlight: str | None = None,
-) -> tuple[tuple[_Placed, ...], int]:
+) -> tuple[tuple[_Placed, ...], int, tuple[Bird, ...]]:
     """Pack the birds into a `pack` box and draw them at `origin`, `scale`
-    times larger, labels reserved but not drawn. Returns the placements and
-    the label size they packed at."""
+    times larger, labels reserved but not drawn. Returns the placements, the
+    label size they packed at, and where each bird was drawn."""
     arts = [trim(path) for _, path in kept]
     # Mass sizes the bird; this sizes the plate it is drawn on.
     ratios = [span_ratio(path, art.size) for (_, path), art in zip(kept, arts, strict=True)]
@@ -538,13 +571,15 @@ def _draw_birds(
         _spotlit(kept, arts, spotlight),
     )
 
+    birds = []
     for p in placed:
         art = _scaled(arts[p.index], max(1, round(p.dim * scale)), flips[p.index])
         at = _at(p.at, scale, origin)
         corner = (at[0] - PAD, at[1] - PAD)
         proc = process_sprite(art, corner, textured=textured)
         canvas.paste(proc, corner, proc)
-    return placed, used_px
+        birds.append(Bird(names[p.index], (*at, at[0] + art.width, at[1] + art.height)))
+    return placed, used_px, tuple(birds)
 
 
 def _spotlit(
@@ -683,9 +718,10 @@ def _draw_keyed(
     layout: str,
     margin: Edges,
     spotlight: str | None = None,
-) -> None:
+) -> tuple[Bird, ...]:
     """The birds with a number each, and their names in a key. The key is fitted
-    in pack pixels like the birds, so every output of one page gets one layout."""
+    in pack pixels like the birds, so every output of one page gets one layout.
+    Returns where each bird was drawn."""
     w, h = canvas.size
     scale = min(w, h) / _PACK_SHORT
     pw, ph = round(w / scale), round(h / scale)
@@ -697,7 +733,7 @@ def _draw_keyed(
     # Numbering waits on the pack, so every bird reserves room for any number.
     count = len(kept)
     origin = _at((bx0, by0), scale)
-    placed, used_px = _draw_birds(
+    placed, used_px, birds = _draw_birds(
         canvas,
         kept,
         origin,
@@ -745,6 +781,7 @@ def _draw_keyed(
     else:
         at = (right - ink.width, (ay0 + ay1 - ink.height) // 2)
     stamp(canvas, ink, at, textured)
+    return birds
 
 
 def _at(at: tuple[int, int], scale: float, origin: tuple[int, int] = (0, 0)) -> tuple[int, int]:

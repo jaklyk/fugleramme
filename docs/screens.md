@@ -36,6 +36,17 @@ On a tablet, add the page to the home screen and it opens like an app, with its 
 > [!NOTE]
 > The icon remembers the address it was saved with, so use the hostname, or give the machine running Fugleramme a static IP lease in your router.
 
+### Tap a bird to listen
+
+Turn on **Tap a bird to listen** under **Kiosk** on the admin page, and a tap on a bird opens a small card with its plate, its names and when it was last heard. A tap anywhere else still shows the settings button.
+
+- **Heard here** plays the bird's latest recording from BirdNET-Go, with its spectrogram. Right after a detection BirdNET-Go may still be saving it; the card says so and tries again. The button is not shown once BirdNET-Go no longer has the recording, or for a BirdWeather station.
+- **Reference** plays a recording of the species from [xeno-canto](https://xeno-canto.org), with its sonogram and the recordist's credit. The frame downloads one per species the first time it is asked for, and keeps it in its data folder.
+
+The browser only ever talks to the frame: it passes BirdNET-Go's recordings through, and fetches xeno-canto's itself. xeno-canto needs an API key, which every registered member has on their account page. Give it to the frame as `FUGLERAMME_XENO_CANTO_KEY` (in the container's environment, or in a `systemctl edit` drop-in on a Pi), never in the settings, which the admin page shows. Without one, the **Reference** button is not shown.
+
+Which recording: a song before a call, quality A first. `FUGLERAMME_XENO_CANTO_COUNTRIES` says which countries to prefer, nearest first, with a `;` between groups, for example `Thailand; Malaysia, Myanmar, Laos, Cambodia, Vietnam`. Without it, any country will do.
+
 ## On HDMI, Raspberry Pi OS Desktop
 
 When the frame can't connect to a network, the screen shows the [Wi-Fi setup](wifi.md).

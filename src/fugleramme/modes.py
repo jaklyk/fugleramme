@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from PIL import Image, ImageOps
 
@@ -30,9 +30,9 @@ from . import wifi
 from .languages import STATION, Drawable, Namer, english_name, station_locale
 from .names import drawable_keys, image_for, normalize, perches_for, resolve
 from .render import fonts
-from .render.collage import KEY_LIMIT, NO_LIMIT, gather_entries, render_collage, selected_species
-from .render.page import NEW, Edges, day_ordinal
-from .render.plate import effective_margin, render_plate
+from .render.collage import KEY_LIMIT, NO_LIMIT, compose_collage, gather_entries, selected_species
+from .render.page import NEW, Bird, Drawn, Edges, day_ordinal
+from .render.plate import compose_plate, effective_margin
 from .render.setup import setup_page
 from .source import Source, Species
 
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 # How far back to look for a detection we have artwork for, and for the start of
 # the run the holder is on. A species with no plate cannot hold the page, so the
 # latest one that can does instead.
-_RECENT_SCAN = 500
+RECENT_SCAN = 500
 NEW_HOURS = 24  # how long a bird first heard counts as new, for its mark
 
 
@@ -120,7 +120,7 @@ def _key_limit(limit: int) -> int:
 @dataclass(frozen=True)
 class Mode:
     label: str
-    render: Callable[[Context], Image.Image]
+    draw: Callable[[Context], Drawn]
     key: Callable[[Context], tuple]
     # The species this page is about, for the admin listing.
     subjects: Callable[[Context], list[str]]
@@ -171,11 +171,12 @@ def _labeller(ctx: Context) -> Callable[[str], str]:
     return label
 
 
-def _plate(ctx: Context, name: str | None, note: str = "", art: Path | None = None) -> Image.Image:
+def _plate(ctx: Context, name: str | None, note: str = "", art: Path | None = None) -> Drawn:
     if name and art is None:
         art = image_for(name, ctx.images_dir, ctx.style, ctx.day)
-    return render_plate(
+    return compose_plate(
         art,
+        name or "",
         _labeller(ctx)(name) if name else "",
         note,
         ctx.resolution,
@@ -220,9 +221,9 @@ def _collage_key(ctx: Context) -> tuple:
     return (species, spotlit if spotlit in species else None)
 
 
-def _collage(ctx: Context) -> Image.Image:
+def _collage(ctx: Context) -> Drawn:
     spotlit = _spotlit(ctx)
-    return render_collage(
+    return compose_collage(
         gather_entries(
             ctx.source,
             ctx.images_dir,
@@ -254,7 +255,7 @@ def _holder(ctx: Context) -> tuple[str, datetime] | None:
     keys = ctx.drawable()
     name: str | None = None
     since: datetime | None = None
-    for detection in ctx.source.recent(_RECENT_SCAN):  # newest first
+    for detection in ctx.source.recent(RECENT_SCAN):  # newest first
         if normalize(detection.scientific_name) not in keys:
             continue
         if name is None:
@@ -272,7 +273,7 @@ def _latest_key(ctx: Context) -> tuple:
     return _holder(ctx) or ()
 
 
-def _latest_page(ctx: Context) -> Image.Image:
+def _latest_page(ctx: Context) -> Drawn:
     holder = _holder(ctx)
     if holder is None:
         return _plate(ctx, None)
@@ -296,7 +297,7 @@ def _arrival_key(ctx: Context) -> tuple:
     return (species.scientific_name, species.first_seen.astimezone().date())
 
 
-def _arrival_page(ctx: Context) -> Image.Image:
+def _arrival_page(ctx: Context) -> Drawn:
     species = _arrival(ctx)
     if species is None:
         return _plate(ctx, None)
@@ -383,7 +384,11 @@ def token(key: tuple) -> str:
 
 
 def render(ctx: Context) -> Image.Image:
-    return mode_of(ctx.mode).render(ctx)
+    return draw(ctx).image
+
+
+def draw(ctx: Context) -> Drawn:
+    return mode_of(ctx.mode).draw(ctx)
 
 
 def subjects(ctx: Context) -> list[str]:
@@ -413,20 +418,35 @@ def setup_screen(
     return Image.merge("LA", (Image.new("L", size, 0), ImageOps.invert(page)))
 
 
-_cache: tuple[tuple, bytes] | None = None
+class Page(NamedTuple):
+    """One render as the HTTP endpoints serve it: the PNG, its size, where each
+    bird was drawn, and the state key it was drawn under."""
+
+    key: tuple
+    png: bytes
+    size: tuple[int, int]
+    birds: tuple[Bird, ...]
+
+
+_cache: Page | None = None
 _cache_lock = threading.Lock()
 
 
 def png_bytes(ctx: Context) -> bytes:
-    """The current page as PNG, for the HTTP endpoints. The lock is held across
-    the render so concurrent kiosk requests wait for one render instead of each
-    doing their own."""
+    return page(ctx).png
+
+
+def page(ctx: Context) -> Page:
+    """The current page, for the HTTP endpoints. The lock is held across the
+    render so concurrent kiosk requests wait for one render instead of each
+    doing their own, and the picture and its birds always come from that one."""
     global _cache
     with _cache_lock:
         key = state_key(ctx)
-        if _cache is not None and _cache[0] == key:
-            return _cache[1]
+        if _cache is not None and _cache.key == key:
+            return _cache
+        drawn = draw(ctx)
         buffer = io.BytesIO()
-        render(ctx).save(buffer, format="PNG")
-        _cache = (key, buffer.getvalue())
-        return _cache[1]
+        drawn.image.save(buffer, format="PNG")
+        _cache = Page(key, buffer.getvalue(), drawn.image.size, drawn.birds)
+        return _cache

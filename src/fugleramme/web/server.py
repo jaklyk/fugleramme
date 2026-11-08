@@ -33,22 +33,24 @@ import secrets
 import socket
 import threading
 import time
-from dataclasses import replace
+from dataclasses import asdict, replace
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from .. import __version__, buttons, e6, modes, updates, wifi
-from ..languages import namer
+from .. import __version__, buttons, e6, listen, modes, updates, wifi
+from ..languages import NONE, namer
+from ..names import image_for
 from ..panel import Panel, resolution_of, to_glass
 from ..render.fonts import cut
 from ..render.page import banded
 from ..render.paper import paper_tile
 from ..settings import Settings, SettingsStore, merged
-from ..source import Source, Unavailable
+from ..source import BIRDWEATHER, Source, Unavailable
 from ..status import MAT_TEST_SECONDS, Frame, MatTest, Status, under_test
+from ..xenocanto import References
 from . import LOGIN, LOGOUT, STATIC_DIR, admin, portal
 
 log = logging.getLogger(__name__)
@@ -86,6 +88,15 @@ TRACKED = 1000
 
 MAX_BODY = 1024 * 1024  # what BirdNET-Go's API takes; a settings form is bytes
 
+# What a downloaded reference recording is served as.
+AUDIO = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+}
+
 # Served verbatim. The admin's link carries ?v=<version>, so an update busts the cache.
 FILES = {
     "/": ("kiosk.html", HTML),
@@ -97,6 +108,7 @@ FILES = {
     "/icon-512.png": ("icon-512.png", "image/png"),
     "/favicon.png": ("favicon.png", "image/png"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+    "/listen.js": ("listen.js", "text/javascript; charset=utf-8"),
 } | {  # the admin's script, a module per section
     f"/admin/{js.name}": (f"admin/{js.name}", "text/javascript; charset=utf-8")
     for js in sorted((STATIC_DIR / "admin").glob("*.js"))
@@ -167,6 +179,8 @@ def make_handler(
     status: Status,
     setup: wifi.Setup | None = None,
     home: str = "",
+    detector: listen.Detector | None = None,
+    references: References | None = None,
 ):
     def glass(settings: Settings) -> tuple[int, int] | None:
         """The panel the page is laid out for, or None: nothing for the kiosk to lock to."""
@@ -569,6 +583,112 @@ def make_handler(
         def _health(self):
             self._send(200, b"ok", "text/plain")
 
+        def _listening(self) -> bool:
+            """Tap-to-listen's routes answer only while it is on, so a frame with it
+            off serves exactly what it served before there was one."""
+            if store.get().tap_to_listen and self._setup_shown() is None:
+                return True
+            self._send(404, b"not found", "text/plain")
+            return False
+
+        def _page_json(self):
+            # The picture's own render: modes.page holds the PNG and its birds as one.
+            if not self._listening():
+                return
+            settings = store.get()
+            ctx = self._context(under_test(settings, status.testing()))
+            page = modes.page(ctx)
+            token = modes.token((page.key, status.mat_test is not None))
+            english = namer("en", NONE, store.path.parent)
+            clips = detector is not None and settings.detector_kind != BIRDWEATHER
+            described = listen.describe(
+                page, token, listen.latest_calls(ctx), ctx.namer, english, clips
+            )
+            self._send(200, json.dumps(described).encode(), JSON)
+
+        def _plate(self):
+            """The plate a bird is wearing today, for its card."""
+            if not self._listening():
+                return
+            settings = store.get()
+            name = self._query().get("name", [""])[0]
+            ctx = self._context(settings)
+            art = image_for(name, images_dir, ctx.style, ctx.day) if name else None
+            if art is None:
+                self._send(404, b"no plate", "text/plain")
+                return
+            self._send_cached(
+                art.read_bytes(), "image/webp" if art.suffix == ".webp" else "image/png"
+            )
+
+        def _clip(self):
+            if not self._listening():
+                return
+            query = self._query()
+            what, number = query.get("what", [""])[0], query.get("id", [""])[0]
+            if (
+                detector is None
+                or what not in listen.CLIPS
+                or not number.isascii()
+                or not number.isdigit()
+            ):
+                self._send(404, b"not found", "text/plain")
+                return
+            code, headers, body = listen.clip(
+                detector, what, int(number), self.headers.get("Range", "")
+            )
+            self._send_through(code, headers, body)
+
+        def _send_through(self, code: int, headers: dict[str, str], body: bytes):
+            self.send_response(code)
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header(
+                "Cache-Control", "no-store" if code >= 400 else "private, max-age=3600"
+            )
+            self.end_headers()
+            self._body(body)
+
+        def _reference(self):
+            """The species' xeno-canto recording, downloaded on first ask: its credit
+            as JSON, or with `what` the audio or the sonogram itself."""
+            if not self._listening():
+                return
+            query = self._query()
+            name, what = query.get("name", [""])[0], query.get("what", [""])[0]
+            if references is None or not references.enabled or not name:
+                self._send(404, b"no reference recordings", "text/plain")
+                return
+            found = references.get(name)
+            if found is None:
+                self._send(404, b"no recording", "text/plain")
+                return
+            if what == "audio":
+                self._send_range(references.folder / found.audio)
+            elif what == "sonogram" and found.sonogram:
+                self._send_cached((references.folder / found.sonogram).read_bytes(), "image/png")
+            elif what:
+                self._send(404, b"not found", "text/plain")
+            else:
+                self._send(200, json.dumps(asdict(found)).encode(), JSON)
+
+        def _send_range(self, path: Path):
+            """A file a browser may ask for in pieces, as Safari does for audio."""
+            body = path.read_bytes()
+            kind = AUDIO.get(path.suffix, "application/octet-stream")
+            span = listen.byte_range(self.headers.get("Range", ""), len(body))
+            if span is None:
+                self._send_through(200, {"Content-Type": kind, "Accept-Ranges": "bytes"}, body)
+                return
+            start, end = span
+            headers = {
+                "Content-Type": kind,
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{len(body)}",
+            }
+            self._send_through(206, headers, body[start : end + 1])
+
         ROUTES: ClassVar[dict] = {
             "/collage.png": _page_png,
             "/frame.e6": _e6,
@@ -582,6 +702,10 @@ def make_handler(
             "/admin": _admin,
             "/update": _update,
             "/health": _health,
+            "/page.json": _page_json,
+            "/listen/plate": _plate,
+            "/listen/clip": _clip,
+            "/listen/reference": _reference,
         }
 
         def do_GET(self):
@@ -730,12 +854,16 @@ def serve(
     panel: Panel | None = None,
     status: Status | None = None,
     setup: wifi.Setup | None = None,
+    detector: listen.Detector | None = None,
+    references: References | None = None,
 ) -> ThreadingHTTPServer:
     """Start the kiosk on a daemon thread. Port 0 asks the OS for one - read it
     back from `server_address[1]`."""
     # Where a phone finds the frame once the setup hotspot has put it on a network.
     home = f"http://{socket.gethostname()}.local:{port}"
-    handler = make_handler(source, images_dir, store, panel, status or Status(), setup, home)
+    handler = make_handler(
+        source, images_dir, store, panel, status or Status(), setup, home, detector, references
+    )
     httpd = ThreadingHTTPServer((host, port), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd

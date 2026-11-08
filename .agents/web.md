@@ -16,6 +16,15 @@ Covers the `web/` package.
 - `admin_password` is stored in the clear beside `detector_password` deliberately - `FUGLERAMME_ADMIN_PASSWORD` seeds a container, and a hand edit is how a locked-out Pi gets back in. BirdNET-Go stores its own the same way.
 - `SameSite=Lax` keeps the cookie off another site's POST, and `do_POST` refuses a `Sec-Fetch-Site: cross-site` request besides - which is what protects a frame with no password set at all. Comparing `Origin` to `Host` instead would lock out anyone running the frame behind an HTTPS proxy.
 
+## Tap-to-listen (`listen.py`, `static/listen.js`, `xenocanto.py`)
+
+- Off by default (`Settings.tap_to_listen`), and then every one of its routes is a 404, `/page.json` included. `kiosk.html` asks that with a `HEAD` and imports `listen.js` only on a 200, so a frame with it off serves the kiosk byte for byte as before, with no extra round trip.
+- Its routes are the kiosk's, open whatever the admin is set to: a wall tablet holds no session. They are listed as such in `test_every_route_is_either_the_kiosk_or_behind_the_password`.
+- The boxes in `/page.json` are the ones the picture was drawn with: `modes.page` caches the PNG and the render's `Drawn.birds` as one entry under one state key, and the token is built from that key exactly as `/state` builds its own. Never a second render, which could land the birds elsewhere.
+- `listen.js` only applies a description whose token is the picture's on screen (`?v=`); a newer page's boxes wait for its picture's `load`. Targets are rebuilt on `resize`, which is also what a rotation fires, and are stacked smallest on top, since a plate's box takes in the bare paper around its bird.
+- BirdNET-Go's clips are passed through with the browser's `Range` header and BirdNET-Go's status, so its 206 and its 503 with `Retry-After` (a clip still being written) reach the card as they were sent. Safari plays no audio from a server that does not answer ranges, which is also why the reference audio is served through `listen.byte_range`.
+- xeno-canto is asked by the frame, never the browser, so the key stays on the server: `FUGLERAMME_XENO_CANTO_KEY` is launch-only, like `FUGLERAMME_LOG_LEVEL`, because `settings.json` is shown on the admin page.
+
 ## The Detector tab (`templates/detector.html`, `admin.refused`)
 
 - Each type keeps its own fields. The other type's are `hidden` and `disabled`, so a save posts nothing for them and their stored values stand for a switch back; `detector.js` swaps them before the form's dirty check reads it. Both are text inputs: a url input would refuse a bare station ID and a BirdNET-Go typed without a scheme.
